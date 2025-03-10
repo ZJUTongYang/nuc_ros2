@@ -1,0 +1,7 @@
+shape_msgs/Mesh mesh
+
+string frame_id
+
+---
+
+nav_msgs/Path coverage
