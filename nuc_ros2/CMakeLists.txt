@@ -12,7 +12,11 @@ find_package(std_msgs REQUIRED)
 find_package(shape_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(nuc_msgs REQUIRED)
+find_package(geometry_msgs REQUIRED)
+find_package(tf2_eigen REQUIRED)
+
 find_package(OpenMP REQUIRED)
+find_package(Eigen3 REQUIRED)
 
 # Optional dependency for benchmarking
 find_package(benchmarking_3dcpp_interfaces)
@@ -25,6 +29,7 @@ endif()
 
 include_directories(
   include 
+  ${Eigen3_INCLUDE_DIRS}
   ${ament_INCLUDE_DIRS}
 )
 
@@ -36,10 +41,10 @@ target_include_directories(nuc_node PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
 )
-ament_target_dependencies(nuc_node PUBLIC rclcpp std_msgs shape_msgs nav_msgs nuc_msgs)
+ament_target_dependencies(nuc_node PUBLIC rclcpp std_msgs shape_msgs nav_msgs geometry_msgs nuc_msgs tf2_eigen)
 
 if(OpenMP_CXX_FOUND)
-  target_link_libraries(nuc_node PRIVATE OpenMP::OpenMP_CXX)
+  target_link_libraries(nuc_node PRIVATE Eigen3::Eigen OpenMP::OpenMP_CXX)
 endif()
 
 if(benchmarking_3dcpp_interfaces_FOUND)
@@ -57,10 +62,10 @@ target_include_directories(nuc PUBLIC
   $<INSTALL_INTERFACE:include>
 )
 ament_target_dependencies(nuc PUBLIC
-  rclcpp std_msgs shape_msgs nav_msgs nuc_msgs)
+  rclcpp std_msgs shape_msgs nav_msgs geometry_msgs nuc_msgs tf2_eigen)
 
 if(OpenMP_CXX_FOUND)
-  target_link_libraries(nuc PRIVATE OpenMP::OpenMP_CXX)
+  target_link_libraries(nuc PRIVATE Eigen3::Eigen OpenMP::OpenMP_CXX)
 endif()
 
 if(benchmarking_3dcpp_interfaces_FOUND)

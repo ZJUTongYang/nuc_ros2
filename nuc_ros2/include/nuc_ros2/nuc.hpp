@@ -2,8 +2,12 @@
 #include <vector>
 #include <rclcpp/rclcpp.hpp>
 #include <shape_msgs/msg/mesh.hpp>
+#include <geometry_msgs/msg/pose.hpp>
 #include <nuc_msgs/srv/get_nuc.hpp>
 #include <nuc_msgs/srv/get_nuc_with_given_start.hpp>
+#include <Eigen/Dense>
+#include <Eigen/Geometry>
+#include <tf2_eigen/tf2_eigen.hpp>
 
 #ifdef ENABLE_BENCHMARKING_3DCPP_INTERFACES
 #include <benchmarking_3dcpp_interfaces/srv/get_nuc.hpp>
@@ -42,6 +46,8 @@ namespace nuc_ros2
 			subver_index_ = subver_index;
 			child_in_parent_index_ = child_in_parent_index;
         }
+
+		// This function reports the sequence of sub-facets
         void getCyclicCoveragePath(std::vector<int>& int_path, std::vector<double>& double_path) const
 		{
 			int subver_index = subver_index_ % 3;
@@ -93,6 +99,9 @@ namespace nuc_ros2
 			rclcpp::Service<nuc_msgs::srv::GetNuc>::SharedPtr nuc_service_;
 
 			void convertMeshToVector(const shape_msgs::msg::Mesh& the_mesh, std::vector<int>& mesh_tri, std::vector<double>& mesh_ver);
+
+			void computeFacetNormals(const std::vector<int>& mesh_tri, const std::vector<double>& mesh_ver, 
+				std::vector<double>& mesh_normal);
 
 #ifdef ENABLE_BENCHMARKING_3DCPP_INTERFACES
 			rclcpp::Service<benchmarking_3dcpp_interfaces::srv::GetNuc>::SharedPtr nuc_benchmark_service_;

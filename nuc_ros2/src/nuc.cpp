@@ -272,7 +272,7 @@ namespace nuc_ros2
 	{		
 		// Here we allow for [-1, -1, -1] triangle facet, so we need to find the first valid facet
 		int initial_tri_index = -1;
-		int tri_num = mesh_tri.size()/3;
+		unsigned int tri_num = mesh_tri.size()/3;
 		
 		for(unsigned int i = 0; i < tri_num; ++i)
 		{
@@ -299,7 +299,7 @@ namespace nuc_ros2
 			std::bind(&NUC::getNUCWithStartCallback, this, std::placeholders::_1, std::placeholders::_2));
 
 #ifdef ENABLE_BENCHMARKING_3DCPP_INTERFACES
-			nuc_benchmark_service_ = this->create_service<benchmarking_3dcpp_interfaces::srv::GetNuc>("get_nuc_benchmark", 
+			nuc_benchmark_service_ = this->create_service<benchmarking_3dcpp_interfaces::srv::GetNuc>("get_Yang2023Template_benchmark", 
 				std::bind(&NUC::getNUCBenchmarkServiceCallback, this, std::placeholders::_1, std::placeholders::_2));
 #endif
 	}
@@ -325,10 +325,10 @@ namespace nuc_ros2
 
 		response->coverage.header.stamp = this->now();
 		response->coverage.header.frame_id = request->frame_id;
-		int num_waypoint = result.first.size();
+		unsigned int num_waypoint = result.first.size();
 		response->coverage.poses.resize(num_waypoint);
 
-		for(unsigned int i = 0; i < num_waypoint; ++i)
+		for(size_t i = 0; i < num_waypoint; ++i)
 		{
 			response->coverage.poses[i].pose.position.x = result.second[i*3];
 			response->coverage.poses[i].pose.position.y = result.second[i*3+1];
@@ -349,7 +349,7 @@ namespace nuc_ros2
 		// We find the facet whose center is the closest to the start point
 		double min_dist = 1000000;
 		int min_facet = -1;
-		int tri_num = mesh_tri.size()/3;
+		unsigned int tri_num = mesh_tri.size()/3;
 		for(size_t i = 0; i < tri_num; ++i)
 		{
 			double dx = request->start_pose.pose.position.x - mesh_ver[i*3];
@@ -372,10 +372,10 @@ namespace nuc_ros2
 
 		response->coverage.header.stamp = this->now();
 		response->coverage.header.frame_id = request->frame_id;
-		int num_waypoint = result.first.size();
+		unsigned int num_waypoint = result.first.size();
 		response->coverage.poses.resize(num_waypoint);
 
-		for(unsigned int i = 0; i < num_waypoint; ++i)
+		for(size_t i = 0; i < num_waypoint; ++i)
 		{
 			response->coverage.poses[i].pose.position.x = result.second[i*3];
 			response->coverage.poses[i].pose.position.y = result.second[i*3+1];
@@ -387,8 +387,8 @@ namespace nuc_ros2
 	void NUC::convertMeshToVector(const shape_msgs::msg::Mesh& the_mesh, 
 		std::vector<int>& mesh_tri, std::vector<double>& mesh_ver)
 	{
-		int tri_num = the_mesh.triangles.size();
-		int ver_num = the_mesh.vertices.size();
+		unsigned int tri_num = the_mesh.triangles.size();
+		unsigned int ver_num = the_mesh.vertices.size();
 		mesh_tri.resize(tri_num*3);
 		mesh_ver.resize(ver_num*3);
 
@@ -409,5 +409,48 @@ namespace nuc_ros2
 		}
 	}
 
+	void NUC::computeFacetNormals(const std::vector<int>& mesh_tri, const std::vector<double>& mesh_ver, 
+				std::vector<double>& mesh_normal)
+	{
+		mesh_normal.resize(mesh_tri.size());
+		unsigned int tri_num = mesh_tri.size() / 3;
+
+		#pragma omp parallel for
+		for(size_t tri_index = 0; tri_index < tri_num; tri_index++)
+		{
+			// The vertices are listed in CCW order.
+			int idx0 = mesh_tri[tri_index*3];
+			int idx1 = mesh_tri[tri_index*3+1];
+			int idx2 = mesh_tri[tri_index*3+2];
+
+			double v0[3] = {mesh_ver[idx0*3], mesh_ver[idx0*3+1], mesh_ver[idx0*3+2]};
+			double v1[3] = {mesh_ver[idx1*3], mesh_ver[idx1*3+1], mesh_ver[idx1*3+2]};
+			double v2[3] = {mesh_ver[idx2*3], mesh_ver[idx2*3+1], mesh_ver[idx2*3+2]};
+
+			double edge1[3] = {v1[0]-v0[0], v1[1]-v0[1], v1[2]-v0[2]};
+	        double edge2[3] = {v2[0]-v0[0], v2[1]-v0[1], v2[2]-v0[2]};
+        
+			// e1 cross_product e2 is the outer normal vector
+			double normal[3];
+			normal[0] = edge1[1]*edge2[2] - edge1[2]*edge2[1];
+			normal[1] = edge1[2]*edge2[0] - edge1[0]*edge2[2];
+			normal[2] = edge1[0]*edge2[1] - edge1[1]*edge2[0];
+
+			double length = sqrt(normal[0]*normal[0] + normal[1]*normal[1] + normal[2]*normal[2]);
+			if(length > 0) {
+				normal[0] /= length;
+				normal[1] /= length;
+				normal[2] /= length;
+			}
+			else
+			{
+				std::cout << "Error: a facet has normal vector of length 0" << std::endl;
+			}
+
+			mesh_normal[tri_index*3+0] = normal[0];
+			mesh_normal[tri_index*3+1] = normal[1];
+			mesh_normal[tri_index*3+2] = normal[2];
+		}
+	}
 
 }
