@@ -1,7 +1,8 @@
 #include <vector>
 #include <unordered_map>
 #include <list>
-#include <nuc_ros2/nuc.h>
+#include <omp.h>
+#include <nuc_ros2/nuc.hpp>
 #include <iostream>
 #include <algorithm>
 #include <shape_msgs/msg/mesh.hpp>
@@ -297,27 +298,28 @@ namespace nuc_ros2
 		nuc_with_start_service_ = this->create_service<nuc_msgs::srv::GetNucWithGivenStart>("get_nuc_with_start", 
 			std::bind(&NUC::getNUCWithStartCallback, this, std::placeholders::_1, std::placeholders::_2));
 
+#ifdef ENABLE_BENCHMARKING_3DCPP_INTERFACES
+			nuc_benchmark_service_ = this->create_service<benchmarking_3dcpp_interfaces::srv::GetNuc>("get_nuc_benchmark", 
+				std::bind(&NUC::getNUCBenchmarkServiceCallback, this, std::placeholders::_1, std::placeholders::_2));
+#endif
 	}
+
+#ifdef ENABLE_BENCHMARKING_3DCPP_INTERFACES
+	void NUC::getNUCBenchmarkServiceCallback(const std::shared_ptr<benchmarking_3dcpp_interfaces::srv::GetNuc::Request> request,
+		std::shared_ptr<benchmarking_3dcpp_interfaces::srv::GetNuc::Response> response)
+	{
+	    
+	}
+#endif
 
 	void NUC::getNUCCallback(const std::shared_ptr<nuc_msgs::srv::GetNuc::Request> request, 
 		std::shared_ptr<nuc_msgs::srv::GetNuc::Response> response)
 	{
 		std::pair<std::vector<int>, std::vector<double> > result;
-		std::vector<int> mesh_tri(request->mesh.triangles.size()*3);
-		std::vector<double> mesh_ver(request->mesh.vertices.size()*3);
-		for(unsigned int i = 0; i < request->mesh.triangles.size(); ++i)
-		{
-			mesh_tri[i*3] = request->mesh.triangles[i].vertex_indices[0];
-			mesh_tri[i*3+1] = request->mesh.triangles[i].vertex_indices[1];
-			mesh_tri[i*3+2] = request->mesh.triangles[i].vertex_indices[2];
-		}
-
-		for(unsigned int i = 0; i < request->mesh.vertices.size(); ++i)
-		{
-			mesh_ver[i*3] = request->mesh.vertices[i].x;
-			mesh_ver[i*3+1] = request->mesh.vertices[i].y;
-			mesh_ver[i*3+2] = request->mesh.vertices[i].z;
-		}
+		
+		std::vector<int> mesh_tri;
+		std::vector<double> mesh_ver;
+		convertMeshToVector(request->mesh, mesh_tri, mesh_ver);
 
 		result = nuc(mesh_tri, mesh_ver);
 
@@ -339,21 +341,10 @@ namespace nuc_ros2
 		std::shared_ptr<nuc_msgs::srv::GetNucWithGivenStart::Response> response)
 	{
 		std::pair<std::vector<int>, std::vector<double> > result;
-		std::vector<int> mesh_tri(request->mesh.triangles.size()*3);
-		std::vector<double> mesh_ver(request->mesh.vertices.size()*3);
-		for(unsigned int i = 0; i < request->mesh.triangles.size(); ++i)
-		{
-			mesh_tri[i*3] = request->mesh.triangles[i].vertex_indices[0];
-			mesh_tri[i*3+1] = request->mesh.triangles[i].vertex_indices[1];
-			mesh_tri[i*3+2] = request->mesh.triangles[i].vertex_indices[2];
-		}
-
-		for(unsigned int i = 0; i < request->mesh.vertices.size(); ++i)
-		{
-			mesh_ver[i*3] = request->mesh.vertices[i].x;
-			mesh_ver[i*3+1] = request->mesh.vertices[i].y;
-			mesh_ver[i*3+2] = request->mesh.vertices[i].z;
-		}
+		
+		std::vector<int> mesh_tri;
+		std::vector<double> mesh_ver;
+		convertMeshToVector(request->mesh, mesh_tri, mesh_ver);
 		
 		// We find the facet whose center is the closest to the start point
 		double min_dist = 1000000;
@@ -392,5 +383,31 @@ namespace nuc_ros2
 			response->coverage.poses[i].pose.orientation.w = 1;
 		}
 	}
+
+	void NUC::convertMeshToVector(const shape_msgs::msg::Mesh& the_mesh, 
+		std::vector<int>& mesh_tri, std::vector<double>& mesh_ver)
+	{
+		int tri_num = the_mesh.triangles.size();
+		int ver_num = the_mesh.vertices.size();
+		mesh_tri.resize(tri_num*3);
+		mesh_ver.resize(ver_num*3);
+
+		#pragma omp parallel for
+		for(size_t i = 0; i < tri_num; ++i)
+		{
+			mesh_tri[i*3] = the_mesh.triangles[i].vertex_indices[0];
+			mesh_tri[i*3+1] = the_mesh.triangles[i].vertex_indices[1];
+			mesh_tri[i*3+2] = the_mesh.triangles[i].vertex_indices[2];
+		}
+
+		#pragma omp parallel for
+		for(size_t i = 0; i < ver_num; ++i)
+		{
+			mesh_ver[i*3] = the_mesh.vertices[i].x;
+			mesh_ver[i*3+1] = the_mesh.vertices[i].y;
+			mesh_ver[i*3+2] = the_mesh.vertices[i].z;
+		}
+	}
+
 
 }

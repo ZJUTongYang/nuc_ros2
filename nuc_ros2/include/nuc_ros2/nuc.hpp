@@ -5,8 +5,9 @@
 #include <nuc_msgs/srv/get_nuc.hpp>
 #include <nuc_msgs/srv/get_nuc_with_given_start.hpp>
 
-// #include <nuc/GetNuc.h>
-// #include <nuc/MeshWithFrame.h>
+#ifdef ENABLE_BENCHMARKING_3DCPP_INTERFACES
+#include <benchmarking_3dcpp_interfaces/srv/get_nuc.hpp>
+#endif
 
 namespace nuc_ros2
 {
@@ -90,6 +91,14 @@ namespace nuc_ros2
 			rclcpp::Service<nuc_msgs::srv::GetNucWithGivenStart>::SharedPtr nuc_with_start_service_;
 
 			rclcpp::Service<nuc_msgs::srv::GetNuc>::SharedPtr nuc_service_;
+
+			void convertMeshToVector(const shape_msgs::msg::Mesh& the_mesh, std::vector<int>& mesh_tri, std::vector<double>& mesh_ver);
+
+#ifdef ENABLE_BENCHMARKING_3DCPP_INTERFACES
+			rclcpp::Service<benchmarking_3dcpp_interfaces::srv::GetNuc>::SharedPtr nuc_benchmark_service_;
+			void getNUCBenchmarkServiceCallback(const std::shared_ptr<benchmarking_3dcpp_interfaces::srv::GetNuc::Request> request, 
+				std::shared_ptr<benchmarking_3dcpp_interfaces::srv::GetNuc::Response> response);
+#endif
 			
 	};
 

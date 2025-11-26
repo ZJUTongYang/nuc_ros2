@@ -1,5 +1,5 @@
 #include <iostream>
-#include <nuc_ros2/nuc.h>
+#include <nuc_ros2/nuc.hpp>
 #include <rclcpp/rclcpp.hpp>
 
 int main(int argc, char** argv)

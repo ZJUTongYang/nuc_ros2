@@ -12,6 +12,16 @@ find_package(std_msgs REQUIRED)
 find_package(shape_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(nuc_msgs REQUIRED)
+find_package(OpenMP REQUIRED)
+
+# Optional dependency for benchmarking
+find_package(benchmarking_3dcpp_interfaces)
+if(benchmarking_3dcpp_interfaces_FOUND)
+  message(STATUS "Found benchmarking_3dcpp_interfaces, enabling new message format")
+  add_definitions(-DENABLE_BENCHMARKING_3DCPP_INTERFACES)
+else()
+  message(STATUS "benchmarking_3dcpp_interfaces not found, using old message format only")
+endif()
 
 include_directories(
   include 
@@ -23,9 +33,18 @@ add_executable(nuc_node
   src/nuc_node.cpp
   src/nuc.cpp)
 target_include_directories(nuc_node PUBLIC
-  ${ament_INCLUDE_DIRS}
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
 )
-ament_target_dependencies(nuc_node rclcpp std_msgs shape_msgs nav_msgs nuc_msgs)
+ament_target_dependencies(nuc_node PUBLIC rclcpp std_msgs shape_msgs nav_msgs nuc_msgs)
+
+if(OpenMP_CXX_FOUND)
+  target_link_libraries(nuc_node PRIVATE OpenMP::OpenMP_CXX)
+endif()
+
+if(benchmarking_3dcpp_interfaces_FOUND)
+  ament_target_dependencies(nuc_node PUBLIC benchmarking_3dcpp_interfaces)
+endif()
 
 install(TARGETS
   nuc_node
@@ -34,10 +53,20 @@ install(TARGETS
 add_library(nuc SHARED
   src/nuc.cpp)
 target_include_directories(nuc PUBLIC
-  ${ament_INCLUDE_DIRS}
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
 )
 ament_target_dependencies(nuc PUBLIC
   rclcpp std_msgs shape_msgs nav_msgs nuc_msgs)
+
+if(OpenMP_CXX_FOUND)
+  target_link_libraries(nuc PRIVATE OpenMP::OpenMP_CXX)
+endif()
+
+if(benchmarking_3dcpp_interfaces_FOUND)
+  ament_target_dependencies(nuc PUBLIC benchmarking_3dcpp_interfaces)
+endif()
+
 
 install(
   DIRECTORY include/
