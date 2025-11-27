@@ -15,6 +15,13 @@
 
 namespace nuc_ros2
 {
+	struct Pose3D
+	{
+		// The homogeneous matrix
+		Eigen::Matrix4d data;
+	};
+	geometry_msgs::msg::Pose from_homo_to_Pose(const std::vector<double>& homo);
+
     struct Facet
     {
     public: 
@@ -83,9 +90,6 @@ namespace nuc_ros2
 		public:
 			NUC();
 
-			// void execute(const shape_msgs::msg::Mesh::ConstPtr& the_mesh);
-
-			// bool executeService(nuc::GetNuc::Request& req, nuc::GetNuc::Response& resp);
 			void getNUCCallback(const std::shared_ptr<nuc_msgs::srv::GetNuc::Request> request, 
 				std::shared_ptr<nuc_msgs::srv::GetNuc::Response> response);
 

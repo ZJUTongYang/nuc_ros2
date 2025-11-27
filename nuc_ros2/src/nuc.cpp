@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <shape_msgs/msg/mesh.hpp>
 #include <nav_msgs/msg/path.hpp>
+#include <Eigen/Dense>
 
 namespace nuc_ros2
 {
@@ -308,7 +309,105 @@ namespace nuc_ros2
 	void NUC::getNUCBenchmarkServiceCallback(const std::shared_ptr<benchmarking_3dcpp_interfaces::srv::GetNuc::Request> request,
 		std::shared_ptr<benchmarking_3dcpp_interfaces::srv::GetNuc::Response> response)
 	{
-	    
+	    std::pair<std::vector<int>, std::vector<double> > result;
+		
+		std::vector<int> mesh_tri;
+		std::vector<double> mesh_ver;
+		convertMeshToVector(request->mesh, mesh_tri, mesh_ver);
+
+		result = nuc(mesh_tri, mesh_ver);
+
+		// The response of the benchmarking platform is a fully 3D one, so we need to assign the robot waypoint poses
+		// The x-dir is the robot's heading direction, the y-dir is the robot's left direction, and the z-dir is the up direction
+		// So for the case in the Yang2023Template paper, the tool's pointing direction is the -z axis
+		std::vector<double> mesh_normal;
+		computeFacetNormals(mesh_tri, mesh_ver, mesh_normal);
+
+		// By having the subfacets index, we know the facet that the waypoint stays in
+		std::vector<int> subfacet_index_path = result.first;
+		std::vector<double> waypoint_path = result.second;
+
+		std::vector<Pose3D> path_3d;
+		path_3d.resize(subfacet_index_path.size());
+
+		// We set up the xyz
+		// The waypoint is set as a [16] array
+		// position is copied as is
+		// z-direction (outer normal of the facet)
+		#pragma omp parallel for
+		for(size_t i = 0; i < path_3d.size(); ++i)
+		{
+			auto& data = path_3d[i].data;
+
+			data(0, 3) = waypoint_path[i*3];
+			data(1, 3) = waypoint_path[i*3+1];
+			data(2, 3) = waypoint_path[i*3+2];
+			data(3, 3) = 1;
+
+			int facet_index = subfacet_index_path[0] / 3; 
+
+			data(0, 2) = mesh_normal[facet_index*3];
+			data(1, 2) = mesh_normal[facet_index*3+1];
+			data(2, 2) = mesh_normal[facet_index*3+2];			
+		}
+
+
+		// We estimate the X-direction (the diff of the beginning two waypoint)
+		for(size_t i = 0; i < path_3d.size(); ++i)
+		{
+			Eigen::Vector3d curr, prev, next;
+			curr << waypoint_path[i*3], waypoint_path[i*3+1], waypoint_path[i*3+2];
+			if(i == 0)
+			{
+				prev = curr;
+			}
+			else
+			{
+				prev << waypoint_path[(i-1)*3], waypoint_path[(i-1)*3+1], waypoint_path[(i-1)*3+2];
+			}
+
+			if(i == path_3d.size()-1)
+			{
+				next = curr;
+			}
+			else
+			{
+				next << waypoint_path[(i+1)*3], waypoint_path[(i+1)*3+1], waypoint_path[(i+1)*3+2];
+			}
+
+			Eigen::Vector3d mean_diff = (next - prev) / 2.0;
+
+			auto& data = path_3d[i].data;
+			data(0, 0) = mean_diff(0);
+			data(1, 0) = mean_diff(1);
+			data(2, 0) = mean_diff(2);
+
+			// We set the y-dir as the cross product of x-dir and z-dir
+			data(0, 1) = data(1, 2) * data(2, 0) - data(2, 2) * data(1, 0);
+			data(1, 1) = data(2, 2) * data(0, 0) - data(0, 2) * data(2, 0);
+			data(2, 1) = data(0, 2) * data(1, 0) - data(1, 2) * data(0, 0);
+
+			// We normalize each direction
+			data.col(0).normalize();
+			data.col(1).normalize();
+			data.col(2).normalize();
+		}
+
+		response->coverage.poses.resize(path_3d.size());
+		for(size_t i = 0; i < path_3d.size(); ++i)
+		{
+			response->coverage.poses[i].pose.position.x = path_3d[i].data(0, 3);
+			response->coverage.poses[i].pose.position.y = path_3d[i].data(1, 3);
+			response->coverage.poses[i].pose.position.z = path_3d[i].data(2, 3);
+
+			// We transform the rotation matrix to quaternion
+			Eigen::Quaterniond q(path_3d[i].data.block<3, 3>(0, 0));
+			response->coverage.poses[i].pose.orientation.x = q.x();
+			response->coverage.poses[i].pose.orientation.y = q.y();
+			response->coverage.poses[i].pose.orientation.z = q.z();
+			response->coverage.poses[i].pose.orientation.w = q.w();
+		}
+
 	}
 #endif
 
