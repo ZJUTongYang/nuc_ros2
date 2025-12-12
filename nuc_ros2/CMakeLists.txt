@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.8)
 project(nuc_ros2)
 
+set(CMAKE_CXX_STANDARD 23)
+
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
@@ -36,7 +38,8 @@ include_directories(
 
 add_executable(nuc_node 
   src/nuc_node.cpp
-  src/nuc.cpp)
+  src/nuc.cpp
+  src/mesh_utils.cpp)
 target_include_directories(nuc_node PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
@@ -56,7 +59,8 @@ install(TARGETS
   DESTINATION lib/${PROJECT_NAME})
 
 add_library(nuc SHARED
-  src/nuc.cpp)
+  src/nuc.cpp
+  src/mesh_utils.cpp)
 target_include_directories(nuc PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
