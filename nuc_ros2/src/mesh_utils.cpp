@@ -5,27 +5,27 @@ namespace nuc_ros2
 {
 
 void convertMeshToVector(const shape_msgs::msg::Mesh& the_mesh, 
-    std::vector<int>& mesh_tri, std::vector<double>& mesh_ver)
+    std::vector<int>& facet_vertices, std::vector<double>& vertex_positions)
 {
-    unsigned int tri_num = the_mesh.triangles.size();
+    unsigned int facet_num = the_mesh.triangles.size();
     unsigned int ver_num = the_mesh.vertices.size();
-    mesh_tri.resize(tri_num*3);
-    mesh_ver.resize(ver_num*3);
+    facet_vertices.resize(facet_num*3);
+    vertex_positions.resize(ver_num*3);
 
     #pragma omp parallel for
-    for(size_t i = 0; i < tri_num; ++i)
+    for(size_t i = 0; i < facet_num; ++i)
     {
-        mesh_tri[i*3] = the_mesh.triangles[i].vertex_indices[0];
-        mesh_tri[i*3+1] = the_mesh.triangles[i].vertex_indices[1];
-        mesh_tri[i*3+2] = the_mesh.triangles[i].vertex_indices[2];
+        facet_vertices[i*3] = the_mesh.triangles[i].vertex_indices[0];
+        facet_vertices[i*3+1] = the_mesh.triangles[i].vertex_indices[1];
+        facet_vertices[i*3+2] = the_mesh.triangles[i].vertex_indices[2];
     }
 
     #pragma omp parallel for
     for(size_t i = 0; i < ver_num; ++i)
     {
-        mesh_ver[i*3] = the_mesh.vertices[i].x;
-        mesh_ver[i*3+1] = the_mesh.vertices[i].y;
-        mesh_ver[i*3+2] = the_mesh.vertices[i].z;
+        vertex_positions[i*3] = the_mesh.vertices[i].x;
+        vertex_positions[i*3+1] = the_mesh.vertices[i].y;
+        vertex_positions[i*3+2] = the_mesh.vertices[i].z;
     }
 }
 
@@ -82,7 +82,7 @@ void compute_adjacency_matrix_directed(const std::vector<int>& vertices_order,
     }// for each facet
 }
 
-void determine_facet_adjacency(std::vector<nuc_ros2::Facet>& all_facets, const std::unordered_map<int, int>& amd)
+void determine_facet_adjacency(std::vector<nuc_ros2::Facet>& all_facets, const std::unordered_map<int, int>& amd, unsigned int ver_num)
 {
     // This function determines the list of indices of adjacent facets for each facet
     for( auto& facet : all_facets)
@@ -95,7 +95,7 @@ void determine_facet_adjacency(std::vector<nuc_ros2::Facet>& all_facets, const s
             int u = vertices_indices[i];
             int v = vertices_indices[(i + 1) % vertices_indices.size()];
 
-            int reverse_edge_key = v + all_facets.size() * u;
+            int reverse_edge_key = v + ver_num * u;
             if (amd.find(reverse_edge_key) != amd.end())
             {
                 facet.adjacent_facets_index_.push_back(amd.at(reverse_edge_key));
@@ -120,9 +120,11 @@ void assignFacetConnection(std::vector<Facet>& all_facets, int root_facet, int e
     {
         int the_edge_to_connect = (edge_index + i) % adjacent_facet.size();
         int adj_index = adjacent_facet[the_edge_to_connect];
-        if(all_facets[adj_index].parent_index_ == -1)
+        // skip boundary edges
+        if(adj_index == -1) continue;
+        if(all_facets[adj_index].parent_index_ == NO_PARENT)
         {
-            all_facets[adj_index].parent_index_ = root_facet;
+            all_facets[adj_index].parent_index_ = static_cast<unsigned int>(root_facet);
             //我们需要确定对于child facet来说，其parent facet在哪个位置
             int loc = std::find(all_facets[adj_index].adjacent_facets_index_.begin(), 
                 all_facets[adj_index].adjacent_facets_index_.end(), root_facet) - all_facets[adj_index].adjacent_facets_index_.begin();

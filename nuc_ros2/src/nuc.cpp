@@ -47,7 +47,7 @@ namespace nuc_ros2
 	}
 
 	std::pair<std::vector<int>, std::vector<double> > nuc_kernel(const std::vector<int>& vertices_order, 
-		const std::vector<Eigen::Vector3d>& vertices_position, const std::vector<int>& first_vertices_offset, 
+		const std::vector<Eigen::VectorXd>& vertices_position, const std::vector<int>& first_vertices_offset, 
 		unsigned int initial_facet_index)
     {
 		std::vector<int> topological_coverage_path;
@@ -58,36 +58,38 @@ namespace nuc_ros2
 		std::vector<Facet> all_facets;
 		for(unsigned int i = 0; i < facet_num; ++i)
 		{
-			all_facets.emplace_back(Facet(vertices_order, vertices_position, first_vertices_offset, i));
+				all_facets.emplace_back(Facet(vertices_order, vertices_position, first_vertices_offset, i));
 		}
 		// std::cout << "number of facets: " << all_facets.size() << std::endl;
 
 		// We first collect the adjacency among facets
 		std::unordered_map<int, int> amd; // <first_vertex_index + second_vertex_index * ver_num, facet_index>
-		compute_adjacency_matrix_directed(vertices_order, first_vertices_offset, facet_num, amd);
+			unsigned int ver_num = vertices_position.size();
+			compute_adjacency_matrix_directed(vertices_order, first_vertices_offset, ver_num, amd);
 
-		determine_facet_adjacency(all_facets, amd);
+			determine_facet_adjacency(all_facets, amd, ver_num);
 
 		int edge_index = find_best_starting_vertex(
 			all_facets[initial_facet_index]);
 
-		all_facets[initial_facet_index].parent_index_ = -2; // so that the root facet won't be connected as a child
+	all_facets[initial_facet_index].parent_index_ = ROOT_SENTINEL; // so that the root facet won't be connected as a child
 		assignFacetConnection(all_facets, initial_facet_index, edge_index);		
 
 		// We report the geometric coverage path
 		topological_coverage_path.clear();
 		geometric_coverage_path.clear();
 
-		std::pair<std::vector<int>, std::vector<Eigen::Vector3d> > child_result = 
-			all_facets[initial_facet_index].getCyclicCoveragePath(all_facets);		
-		
+		std::pair<std::vector<int>, std::vector<Eigen::VectorXd> > child_result = 
+			all_facets[initial_facet_index].getCyclicCoveragePath(all_facets);        
+        
 		topological_coverage_path = child_result.first;
 		auto temp = child_result.second;
 		for (auto &v : temp)
 		{
-			geometric_coverage_path.push_back(v.x());
-			geometric_coverage_path.push_back(v.y());
-			geometric_coverage_path.push_back(v.z());
+			for(int d = 0; d < v.size(); ++d)
+			{
+				geometric_coverage_path.push_back(v[d]);
+			}
 		}
 
 		return std::pair<std::vector<int>, std::vector<double> >(topological_coverage_path, geometric_coverage_path);							
@@ -99,21 +101,21 @@ namespace nuc_ros2
 	 * 此函数接受旧格式的网格数据，将其转换为新格式，调用新版本的 nuc_kernel，
 	 * 并将结果转换回旧格式以保持兼容性。
 	 *
-	 * @param mesh_tri 旧格式的面片数据，每3个整数代表一个三角形。
-	 * @param mesh_ver 旧格式的顶点数据，每3个浮点数代表一个顶点的坐标。
-	 * @param initial_tri_index 初始三角形的索引。
+	 * @param facet_vertices 旧格式的面片数据，每3个整数代表一个三角形（已用作兼容封装）。
+	 * @param vertex_positions 旧格式的顶点数据，每3个浮点数代表一个顶点的坐标（已用作兼容封装）。
+	 * @param initial_tri_index 初始面片的索引。
 	 * @return std::pair 包含处理后的面片索引和顶点坐标（旧格式）。
 	 */
-	std::pair<std::vector<int>, std::vector<double> > nuc_kernel(const std::vector<int>& mesh_tri, 
-		const std::vector<double>& mesh_ver, int initial_tri_index)
+	std::pair<std::vector<int>, std::vector<double> > nuc_kernel(const std::vector<int>& facet_vertices, 
+		const std::vector<double>& vertex_positions, int initial_tri_index)
     {
 		// TODO: 我们把它封装成任意混合多边形的形式
 		std::vector<int> vertices_order;
 		std::vector<int> first_vertices_offset;
 
-		vertices_order.assign(mesh_tri.begin(), mesh_tri.end());
+	vertices_order.assign(facet_vertices.begin(), facet_vertices.end());
 
-    	const size_t num_facets = mesh_tri.size() / 3;
+	const size_t num_facets = facet_vertices.size() / 3;
 		first_vertices_offset.reserve(num_facets);
 		for (size_t i = 0; i < num_facets; ++i) 
 		{
@@ -121,30 +123,28 @@ namespace nuc_ros2
 		}
 
 		// 转换顶点坐标: (std::vector<double>) -> (std::vector<Eigen::Vector3d>)
-    	const size_t num_vertices = mesh_ver.size() / 3;
-		std::vector<Eigen::Vector3d> mesh_ver_eigen;
-		mesh_ver_eigen.reserve(num_vertices);
+		const size_t num_vertices = vertex_positions.size() / 3;
+		std::vector<Eigen::VectorXd> vertex_positions_eigen;
+		vertex_positions_eigen.reserve(num_vertices);
 		for (size_t i = 0; i < num_vertices; ++i) 
 		{
-			mesh_ver_eigen.emplace_back(
-				mesh_ver[i * 3],    
-				mesh_ver[i * 3 + 1],
-				mesh_ver[i * 3 + 2] 
-			);
+			Eigen::VectorXd v(3);
+			v << vertex_positions[i * 3], vertex_positions[i * 3 + 1], vertex_positions[i * 3 + 2];
+			vertex_positions_eigen.push_back(v);
 		}
 
-		return nuc_kernel(vertices_order, mesh_ver_eigen, first_vertices_offset, initial_tri_index);
+		return nuc_kernel(vertices_order, vertex_positions_eigen, first_vertices_offset, initial_tri_index);
 	}
 
-    std::pair<std::vector<int>, std::vector<double> > nuc(const std::vector<int>& mesh_tri, const std::vector<double>& mesh_ver)
+	std::pair<std::vector<int>, std::vector<double> > nuc(const std::vector<int>& facet_vertices, const std::vector<double>& vertex_positions)
 	{		
 		// Here we allow for [-1, -1, -1] triangle facet, so we need to find the first valid facet
 		int initial_tri_index = -1;
-		unsigned int tri_num = mesh_tri.size()/3;
-		
-		for(unsigned int i = 0; i < tri_num; ++i)
+	unsigned int facet_num = facet_vertices.size()/3;
+        
+		for(unsigned int i = 0; i < facet_num; ++i)
 		{
-			if(mesh_tri[i*3] != -1)
+			if(facet_vertices[i*3] != -1)
 			{
 				initial_tri_index = i;
 				break;
@@ -154,7 +154,7 @@ namespace nuc_ros2
 		if(initial_tri_index == -1)
 			return std::pair<std::vector<int>, std::vector<double> >(std::vector<int>(), std::vector<double>());
 
-		return nuc_kernel(mesh_tri, mesh_ver, initial_tri_index);
+	return nuc_kernel(facet_vertices, vertex_positions, initial_tri_index);
 	}
 
 	NUC::NUC(): Node("nuc")
@@ -178,17 +178,18 @@ namespace nuc_ros2
 	{
 	    std::pair<std::vector<int>, std::vector<double> > result;
 		
-		std::vector<int> mesh_tri;
-		std::vector<double> mesh_ver;
-		convertMeshToVector(request->mesh, mesh_tri, mesh_ver);
+	std::vector<int> facet_vertices;
+	std::vector<double> vertex_positions;
+	convertMeshToVector(request->mesh, facet_vertices, vertex_positions);
 
-		result = nuc(mesh_tri, mesh_ver);
+	result = nuc(facet_vertices, vertex_positions);
 
 		// The response of the benchmarking platform is a fully 3D one, so we need to assign the robot waypoint poses
 		// The x-dir is the robot's heading direction, the y-dir is the robot's left direction, and the z-dir is the up direction
 		// So for the case in the Yang2023Template paper, the tool's pointing direction is the -z axis
 		std::vector<double> mesh_normal;
-		computeFacetNormals(mesh_tri, mesh_ver, mesh_normal);
+	unsigned int benchmark_coord_dim = 3;
+	computeFacetNormals(facet_vertices, vertex_positions, mesh_normal, benchmark_coord_dim);
 
 		// By having the subfacets index, we know the facet that the waypoint stays in
 		std::vector<int> subfacet_index_path = result.first;
@@ -283,22 +284,36 @@ namespace nuc_ros2
 	{
 		std::pair<std::vector<int>, std::vector<double> > result;
 		
-		std::vector<int> mesh_tri;
-		std::vector<double> mesh_ver;
-		convertMeshToVector(request->mesh, mesh_tri, mesh_ver);
+		std::vector<int> facet_vertices;
+		std::vector<double> vertex_positions;
+		convertMeshToVector(request->mesh, facet_vertices, vertex_positions);
 
-		result = nuc(mesh_tri, mesh_ver);
+		result = nuc(facet_vertices, vertex_positions);
 
 		response->coverage.header.stamp = this->now();
 		response->coverage.header.frame_id = request->frame_id;
 		unsigned int num_waypoint = result.first.size();
 		response->coverage.poses.resize(num_waypoint);
 
+		// determine coordinate dimension from mesh vertices (compat: request->mesh has 3D vertices)
+		unsigned int coord_dim = 3;
+		if(request->mesh.vertices.size() > 0)
+		{
+			coord_dim = (vertex_positions.size() / request->mesh.vertices.size());
+		}
+
 		for(size_t i = 0; i < num_waypoint; ++i)
 		{
-			response->coverage.poses[i].pose.position.x = result.second[i*3];
-			response->coverage.poses[i].pose.position.y = result.second[i*3+1];
-			response->coverage.poses[i].pose.position.z = result.second[i*3+2];
+			double x = 0, y = 0, z = 0;
+			if(result.second.size() >= (i+1)*3)
+			{
+				x = result.second[i*coord_dim + 0];
+				if(coord_dim > 1) y = result.second[i*coord_dim + 1];
+				if(coord_dim > 2) z = result.second[i*coord_dim + 2];
+			}
+			response->coverage.poses[i].pose.position.x = x;
+			response->coverage.poses[i].pose.position.y = y;
+			response->coverage.poses[i].pose.position.z = z;
 			response->coverage.poses[i].pose.orientation.w = 1;
 		}
 	}
@@ -308,19 +323,36 @@ namespace nuc_ros2
 	{
 		std::pair<std::vector<int>, std::vector<double> > result;
 		
-		std::vector<int> mesh_tri;
-		std::vector<double> mesh_ver;
-		convertMeshToVector(request->mesh, mesh_tri, mesh_ver);
+	std::vector<int> facet_vertices;
+	std::vector<double> vertex_positions;
+	convertMeshToVector(request->mesh, facet_vertices, vertex_positions);
 		
 		// We find the facet whose center is the closest to the start point
 		double min_dist = 1000000;
 		int min_facet = -1;
-		unsigned int tri_num = mesh_tri.size()/3;
-		for(size_t i = 0; i < tri_num; ++i)
+		unsigned int facet_num = facet_vertices.size()/3;
+		unsigned int coord_dim = 3;
+		if(request->mesh.vertices.size() > 0)
+			coord_dim = vertex_positions.size() / request->mesh.vertices.size();
+
+		for(size_t i = 0; i < facet_num; ++i)
 		{
-			double dx = request->start_pose.pose.position.x - mesh_ver[i*3];
-			double dy = request->start_pose.pose.position.y - mesh_ver[i*3+1];
-			double dz = request->start_pose.pose.position.z - mesh_ver[i*3+2];
+			// compute facet centroid in arbitrary dimension by averaging its vertex coordinates
+			Eigen::VectorXd centroid = Eigen::VectorXd::Zero(coord_dim);
+			int vi0 = facet_vertices[i*3 + 0];
+			int vi1 = facet_vertices[i*3 + 1];
+			int vi2 = facet_vertices[i*3 + 2];
+			for(unsigned int d = 0; d < coord_dim; ++d)
+			{
+				double c0 = vertex_positions[vi0*coord_dim + d];
+				double c1 = vertex_positions[vi1*coord_dim + d];
+				double c2 = vertex_positions[vi2*coord_dim + d];
+				centroid[d] = (c0 + c1 + c2) / 3.0;
+			}
+
+			double dx = request->start_pose.pose.position.x - (coord_dim>0 ? centroid[0] : 0.0);
+			double dy = request->start_pose.pose.position.y - (coord_dim>1 ? centroid[1] : 0.0);
+			double dz = request->start_pose.pose.position.z - (coord_dim>2 ? centroid[2] : 0.0);
 			double dist = dx*dx + dy*dy + dz*dz;
 			if(dist < min_dist)
 			{
@@ -334,7 +366,7 @@ namespace nuc_ros2
 			return;
 		}
 
-		result = nuc_kernel(mesh_tri, mesh_ver, min_facet);
+	result = nuc_kernel(facet_vertices, vertex_positions, min_facet);
 
 		response->coverage.header.stamp = this->now();
 		response->coverage.header.frame_id = request->frame_id;
@@ -351,47 +383,67 @@ namespace nuc_ros2
 	}
 
 
-	void NUC::computeFacetNormals(const std::vector<int>& mesh_tri, const std::vector<double>& mesh_ver, 
-				std::vector<double>& mesh_normal)
+	void NUC::computeFacetNormals(const std::vector<int>& facet_vertices, const std::vector<double>& vertex_positions, 
+				std::vector<double>& mesh_normal, unsigned int coord_dim)
 	{
-		mesh_normal.resize(mesh_tri.size());
-		unsigned int tri_num = mesh_tri.size() / 3;
+		// mesh_normal stores 3 components per facet (for compatibility with 3D consumers)
+		mesh_normal.resize(facet_vertices.size());
+		unsigned int facet_num = facet_vertices.size() / 3;
 
 		#pragma omp parallel for
-		for(size_t tri_index = 0; tri_index < tri_num; tri_index++)
+		for(size_t tri_index = 0; tri_index < facet_num; tri_index++)
 		{
 			// The vertices are listed in CCW order.
-			int idx0 = mesh_tri[tri_index*3];
-			int idx1 = mesh_tri[tri_index*3+1];
-			int idx2 = mesh_tri[tri_index*3+2];
+			int idx0 = facet_vertices[tri_index*3];
+			int idx1 = facet_vertices[tri_index*3+1];
+			int idx2 = facet_vertices[tri_index*3+2];
 
-			double v0[3] = {mesh_ver[idx0*3], mesh_ver[idx0*3+1], mesh_ver[idx0*3+2]};
-			double v1[3] = {mesh_ver[idx1*3], mesh_ver[idx1*3+1], mesh_ver[idx1*3+2]};
-			double v2[3] = {mesh_ver[idx2*3], mesh_ver[idx2*3+1], mesh_ver[idx2*3+2]};
+			Eigen::VectorXd v0 = Eigen::VectorXd::Zero(coord_dim);
+			Eigen::VectorXd v1 = Eigen::VectorXd::Zero(coord_dim);
+			Eigen::VectorXd v2 = Eigen::VectorXd::Zero(coord_dim);
 
-			double edge1[3] = {v1[0]-v0[0], v1[1]-v0[1], v1[2]-v0[2]};
-	        double edge2[3] = {v2[0]-v0[0], v2[1]-v0[1], v2[2]-v0[2]};
-        
-			// e1 cross_product e2 is the outer normal vector
-			double normal[3];
-			normal[0] = edge1[1]*edge2[2] - edge1[2]*edge2[1];
-			normal[1] = edge1[2]*edge2[0] - edge1[0]*edge2[2];
-			normal[2] = edge1[0]*edge2[1] - edge1[1]*edge2[0];
+			for(unsigned int d = 0; d < coord_dim; ++d)
+			{
+				v0[d] = vertex_positions[idx0*coord_dim + d];
+				v1[d] = vertex_positions[idx1*coord_dim + d];
+				v2[d] = vertex_positions[idx2*coord_dim + d];
+			}
 
-			double length = sqrt(normal[0]*normal[0] + normal[1]*normal[1] + normal[2]*normal[2]);
-			if(length > 0) {
-				normal[0] /= length;
-				normal[1] /= length;
-				normal[2] /= length;
+			Eigen::VectorXd edge1 = v1 - v0;
+			Eigen::VectorXd edge2 = v2 - v0;
+
+			Eigen::VectorXd normal_vec = Eigen::VectorXd::Zero(coord_dim);
+
+			if(coord_dim == 3)
+			{
+				Eigen::Vector3d e1(edge1[0], edge1[1], edge1[2]);
+				Eigen::Vector3d e2(edge2[0], edge2[1], edge2[2]);
+				Eigen::Vector3d n = e1.cross(e2);
+				double length = n.norm();
+				if(length > 0) n /= length;
+				normal_vec[0] = n[0]; normal_vec[1] = n[1]; normal_vec[2] = n[2];
 			}
 			else
 			{
-				std::cout << "Error: a facet has normal vector of length 0" << std::endl;
+				// For higher dimensions, find a vector orthogonal to edge1 and edge2 via SVD
+				Eigen::MatrixXd M(2, coord_dim);
+				for(unsigned int d = 0; d < coord_dim; ++d)
+				{
+					M(0, d) = edge1[d];
+					M(1, d) = edge2[d];
+				}
+				Eigen::JacobiSVD<Eigen::MatrixXd> svd(M, Eigen::ComputeFullV);
+				Eigen::MatrixXd V = svd.matrixV();
+				// take the last column of V (smallest singular value)
+				normal_vec = V.col(coord_dim - 1);
+				double normv = normal_vec.norm();
+				if(normv > 0) normal_vec /= normv;
 			}
 
-			mesh_normal[tri_index*3+0] = normal[0];
-			mesh_normal[tri_index*3+1] = normal[1];
-			mesh_normal[tri_index*3+2] = normal[2];
+			// Store first three components for compatibility with 3D consumers
+			mesh_normal[tri_index*3+0] = (coord_dim > 0 ? normal_vec[0] : 0.0);
+			mesh_normal[tri_index*3+1] = (coord_dim > 1 ? normal_vec[1] : 0.0);
+			mesh_normal[tri_index*3+2] = (coord_dim > 2 ? normal_vec[2] : 0.0);
 		}
 	}
 

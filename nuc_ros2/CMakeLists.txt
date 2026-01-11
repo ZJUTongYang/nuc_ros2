@@ -104,6 +104,19 @@ if(BUILD_TESTING)
   # a copyright and license is added to all source files
   set(ament_cmake_cpplint_FOUND TRUE)
   ament_lint_auto_find_test_dependencies()
+
+  # Add gtest-based unit tests
+  find_package(ament_cmake_gtest REQUIRED)
+  # Minimal test that links against library 'nuc'
+  ament_add_gtest(nuc_test test/test_nuc.cpp)
+  if(TARGET nuc_test)
+    target_include_directories(nuc_test PRIVATE
+      $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+      ${Eigen3_INCLUDE_DIRS}
+    )
+    # use plain signature here to match ament_add_gtest's internal usage
+    target_link_libraries(nuc_test nuc)
+  endif()
 endif()
 
 ament_package()

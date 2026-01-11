@@ -8,12 +8,17 @@
 #include <Eigen/Dense>
 #include <Eigen/Geometry>
 #include <tf2_eigen/tf2_eigen.hpp>
+#include <limits>
 
 #ifdef ENABLE_BENCHMARKING_3DCPP_INTERFACES
 #include <benchmarking_3dcpp_interfaces/srv/get_nuc.hpp>
 #endif
 namespace nuc_ros2
 {
+	// Sentinel values for parent_index_ when stored as unsigned
+	static constexpr unsigned int NO_PARENT = std::numeric_limits<unsigned int>::max();
+	static constexpr unsigned int ROOT_SENTINEL = NO_PARENT - 1;
+
 	struct Pose3D
 	{
 		// The homogeneous matrix
@@ -46,7 +51,7 @@ namespace nuc_ros2
         Facet(){}
 
 		// This is for arbitrary blended mesh
-		Facet(const std::vector<int>& vertices_order, const std::vector<Eigen::Vector3d>& vertices_position, 
+		Facet(const std::vector<int>& vertices_order, const std::vector<Eigen::VectorXd>& vertices_position, 
 			const std::vector<int>& first_vertices_offset, unsigned int facet_index)
 		{
 			// vertices order: [[v0, v1, v2, v3, v4, ...], [v0, v1, v2, v3, v4, ...], ...]
@@ -58,7 +63,7 @@ namespace nuc_ros2
 			// child_in_parent_index: the index of the child in the parent facet
 
 			index_ = facet_index;
-			parent_index_ = -1;
+			parent_index_ = NO_PARENT;
 
 			int first_vertex_offset = first_vertices_offset[facet_index];
 			int last_vertex_offset_exclusive;
@@ -72,7 +77,14 @@ namespace nuc_ros2
 			}
 			num_vertices_ = last_vertex_offset_exclusive - first_vertex_offset;
 
-			b_ = Eigen::Vector3d(0, 0, 0);
+			if(!vertices_position.empty())
+			{
+				b_ = Eigen::VectorXd::Zero(vertices_position[0].size());
+			}
+			else
+			{
+				b_ = Eigen::VectorXd();
+			}
 			for(int i = first_vertex_offset; i < last_vertex_offset_exclusive; i++)
 			{
 				vertices_indices_.push_back(vertices_order[i]);
@@ -87,26 +99,17 @@ namespace nuc_ros2
 				m_.push_back((vertices_position[vi] + vertices_position[viplus1]) / 2);
 				b_ += m_.back();
 			}
-			b_ /= num_vertices_;
+			if(num_vertices_ > 0)
+			{
+				b_ /= num_vertices_;
+			}
 
 			polygon_center_.clear();
 			for(size_t i = 0; i < num_vertices_; i++)
 			{
-				Eigen::Vector3d the_ver_pos;
-				if (i == num_vertices_ - 1)
-				{
-					the_ver_pos = v_[0];
-				}
-				else
-				{
-					the_ver_pos = v_[i + 1];
-				}
+				Eigen::VectorXd the_ver_pos = v_[ (i == num_vertices_ - 1) ? 0 : (i + 1) ];
+				Eigen::VectorXd sub_facet_center = (the_ver_pos + m_[i] + b_ + m_[(i + 1) % num_vertices_]) / 4.0;
 
-				Eigen::Vector3d sub_facet_center = (the_ver_pos + 
-                                              m_[i] + 
-                                              b_ + 
-                                              m_[(i + 1) % num_vertices_]) / 4;
-            
 	            polygon_center_.push_back(sub_facet_center);
 			}
 			
@@ -119,10 +122,10 @@ namespace nuc_ros2
 		}
 
 		// This function reports the sequence of sub-facets
-        std::pair<std::vector<int>, std::vector<Eigen::Vector3d> > getCyclicCoveragePath(const std::vector<Facet>& all_facets) const
+	        std::pair<std::vector<int>, std::vector<Eigen::VectorXd> > getCyclicCoveragePath(const std::vector<Facet>& all_facets) const
 		{
 			std::vector<int> int_path;
-			std::vector<Eigen::Vector3d> double_path;
+			std::vector<Eigen::VectorXd> double_path;
 			
 			// 循环路径是从parent_edge_index_这个subfacet开始，一直到parent_edge_index - 1结束
 			for(unsigned int i = 0; i < num_vertices_; i++) 
@@ -140,15 +143,24 @@ namespace nuc_ros2
 			{
 				int current_local_index = (parent_edge_index_ + i) % num_vertices_;
 				int adjacent_facet_index = adjacent_facets_index_[current_local_index];
-				if(adjacent_facet_index != -1 && all_facets[adjacent_facet_index].parent_index_ == index_)
+				// adjacent_facet_index can be -1 for boundary. Only access all_facets when valid.
+				if(adjacent_facet_index != -1)
 				{
-					std::pair<std::vector<int>, std::vector<Eigen::Vector3d> > child_result = 
-						all_facets[adjacent_facet_index].getCyclicCoveragePath(all_facets);
-					int len = child_result.first.size();
+					unsigned int adj_idx_u = static_cast<unsigned int>(adjacent_facet_index);
+					if(all_facets[adj_idx_u].parent_index_ == index_)
+					{
+						std::pair<std::vector<int>, std::vector<Eigen::VectorXd> > child_result = 
+							all_facets[adj_idx_u].getCyclicCoveragePath(all_facets);
+						int len = static_cast<int>(child_result.first.size());
 
-					int_path.insert(int_path.begin()+position_to_insert, child_result.first.begin(), child_result.first.end());
-					double_path.insert(double_path.begin()+position_to_insert, child_result.second.begin(), child_result.second.end());
-					position_to_insert += len+1; // 跳过child path之后还得跳过一个自己的顶点
+						int_path.insert(int_path.begin()+position_to_insert, child_result.first.begin(), child_result.first.end());
+						double_path.insert(double_path.begin()+position_to_insert, child_result.second.begin(), child_result.second.end());
+						position_to_insert += len+1; // 跳过child path之后还得跳过一个自己的顶点
+					}
+					else
+					{
+						position_to_insert++;
+					}
 				}
 				else
 				{
@@ -159,7 +171,7 @@ namespace nuc_ros2
 			return std::make_pair(int_path, double_path);
 		}
 
-		int parent_index_; // -1 for the root facet
+		unsigned int parent_index_; // NO_PARENT for no parent; ROOT_SENTINEL used for root facet
 		int parent_edge_index_;
 
 		unsigned int num_vertices_;
@@ -171,13 +183,14 @@ namespace nuc_ros2
 	
 	private:
 
-		std::vector<Eigen::Vector3d> v_; // The position of vertices
+	// Support arbitrary embedding dimension using dynamic-size vectors
+	std::vector<Eigen::VectorXd> v_; // The position of vertices
 
-		std::vector<Eigen::Vector3d> m_; // The Euclidean position of the midpoint of the three edges
+	std::vector<Eigen::VectorXd> m_; // The Euclidean position of the midpoint of the edges
 
-		Eigen::Vector3d b_; // The Euclidean position of the barocenter of the facet
+	Eigen::VectorXd b_; // The Euclidean position of the barocenter of the facet
 
-		std::vector<Eigen::Vector3d> polygon_center_; // The Euclidean position of the barocenter of sub-facets
+	std::vector<Eigen::VectorXd> polygon_center_; // The Euclidean position of the barocenter of sub-facets
 
 		int subver_index_; // The order of the sub-facets designated by who the parent node is
 
@@ -200,8 +213,8 @@ namespace nuc_ros2
 
 			rclcpp::Service<nuc_msgs::srv::GetNuc>::SharedPtr nuc_service_;
 
-			void computeFacetNormals(const std::vector<int>& mesh_tri, const std::vector<double>& mesh_ver, 
-				std::vector<double>& mesh_normal);
+			void computeFacetNormals(const std::vector<int>& facet_vertices, const std::vector<double>& vertex_positions, 
+				std::vector<double>& mesh_normal, unsigned int coord_dim = 3);
 
 #ifdef ENABLE_BENCHMARKING_3DCPP_INTERFACES
 			rclcpp::Service<benchmarking_3dcpp_interfaces::srv::GetNuc>::SharedPtr nuc_benchmark_service_;
