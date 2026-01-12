@@ -46,6 +46,24 @@ namespace nuc_ros2
 		}
 	}
 
+	/**
+	 * @brief Core NUC kernel operating on generalized facets.
+	 *
+	 * This implementation builds internal Facet objects from the input
+	 * vertex ordering and vertex positions (each vertex is an Eigen::VectorXd
+	 * so N-D embeddings are supported). It then computes facet adjacency,
+	 * chooses a starting edge, assigns parent/child relations and finally
+	 * asks the root facet for its cyclic coverage path.
+	 *
+	 * Inputs:
+	 *  - vertices_order: flattened index list of vertices for all facets
+	 *  - vertices_position: per-vertex N-D positions stored as Eigen::VectorXd
+	 *  - first_vertices_offset: starting indices into vertices_order for each facet
+	 *  - initial_facet_index: index of the facet where traversal begins
+	 *
+	 * Returns:
+	 *  - pair of (topological path as indices, geometric path as flattened doubles)
+	 */
 	std::pair<std::vector<int>, std::vector<double> > nuc_kernel(const std::vector<int>& vertices_order, 
 		const std::vector<Eigen::VectorXd>& vertices_position, const std::vector<int>& first_vertices_offset, 
 		unsigned int initial_facet_index)
@@ -96,20 +114,16 @@ namespace nuc_ros2
  	}
 
 	/**
-	 * @brief 兼容性封装器，将旧的三角形网格接口适配到新的多边形网格接口。
+	 * @brief Compatibility wrapper for legacy triangle meshes (flat arrays).
 	 *
-	 * 此函数接受旧格式的网格数据，将其转换为新格式，调用新版本的 nuc_kernel，
-	 * 并将结果转换回旧格式以保持兼容性。
-	 *
-	 * @param facet_vertices 旧格式的面片数据，每3个整数代表一个三角形（已用作兼容封装）。
-	 * @param vertex_positions 旧格式的顶点数据，每3个浮点数代表一个顶点的坐标（已用作兼容封装）。
-	 * @param initial_tri_index 初始面片的索引。
-	 * @return std::pair 包含处理后的面片索引和顶点坐标（旧格式）。
+	 * The project previously used flat arrays where each vertex had exactly 3
+	 * coordinates. To remain backwards-compatible we provide this thin wrapper
+	 * which converts the old format into the new Eigen::VectorXd representation
+	 * and forwards to the N-D aware `nuc_kernel` above.
 	 */
 	std::pair<std::vector<int>, std::vector<double> > nuc_kernel(const std::vector<int>& facet_vertices, 
-		const std::vector<double>& vertex_positions, int initial_tri_index)
+		const std::vector<double>& vertex_positions, int initial_facet_index)
     {
-		// TODO: 我们把它封装成任意混合多边形的形式
 		std::vector<int> vertices_order;
 		std::vector<int> first_vertices_offset;
 
@@ -133,28 +147,33 @@ namespace nuc_ros2
 			vertex_positions_eigen.push_back(v);
 		}
 
-		return nuc_kernel(vertices_order, vertex_positions_eigen, first_vertices_offset, initial_tri_index);
+		return nuc_kernel(vertices_order, vertex_positions_eigen, first_vertices_offset, initial_facet_index);
 	}
 
+	/**
+	 * @brief Public convenience function for legacy callers.
+	 *
+	 * This locates a valid starting triangle (skipping sentinel [-1,-1,-1] faces)
+	 * and invokes the compatibility wrapper above.
+	 */
 	std::pair<std::vector<int>, std::vector<double> > nuc(const std::vector<int>& facet_vertices, const std::vector<double>& vertex_positions)
-	{		
+	{ 
 		// Here we allow for [-1, -1, -1] triangle facet, so we need to find the first valid facet
-		int initial_tri_index = -1;
-	unsigned int facet_num = facet_vertices.size()/3;
-        
-		for(unsigned int i = 0; i < facet_num; ++i)
-		{
-			if(facet_vertices[i*3] != -1)
-			{
-				initial_tri_index = i;
+		int initial_facet_index = -1;
+		unsigned int facet_num = facet_vertices.size() / 3;
+
+		for (unsigned int i = 0; i < facet_num; ++i) {
+			if (facet_vertices[i * 3] != -1) {
+				initial_facet_index = i;
 				break;
 			}
 		}
 
-		if(initial_tri_index == -1)
-			return std::pair<std::vector<int>, std::vector<double> >(std::vector<int>(), std::vector<double>());
+		if (initial_facet_index == -1) {
+			return std::pair<std::vector<int>, std::vector<double>>(std::vector<int>(), std::vector<double>());
+		}
 
-	return nuc_kernel(facet_vertices, vertex_positions, initial_tri_index);
+		return nuc_kernel(facet_vertices, vertex_positions, initial_facet_index);
 	}
 
 	NUC::NUC(): Node("nuc")
@@ -180,7 +199,8 @@ namespace nuc_ros2
 		
 	std::vector<int> facet_vertices;
 	std::vector<double> vertex_positions;
-	convertMeshToVector(request->mesh, facet_vertices, vertex_positions);
+	unsigned int mesh_coord_dim = 3;
+	convertMeshToVector(request->mesh, facet_vertices, vertex_positions, mesh_coord_dim);
 
 	result = nuc(facet_vertices, vertex_positions);
 
@@ -188,8 +208,8 @@ namespace nuc_ros2
 		// The x-dir is the robot's heading direction, the y-dir is the robot's left direction, and the z-dir is the up direction
 		// So for the case in the Yang2023Template paper, the tool's pointing direction is the -z axis
 		std::vector<double> mesh_normal;
-	unsigned int benchmark_coord_dim = 3;
-	computeFacetNormals(facet_vertices, vertex_positions, mesh_normal, benchmark_coord_dim);
+	// use actual mesh coordinate dimension discovered during conversion
+	computeFacetNormals(facet_vertices, vertex_positions, mesh_normal, mesh_coord_dim);
 
 		// By having the subfacets index, we know the facet that the waypoint stays in
 		std::vector<int> subfacet_index_path = result.first;
@@ -286,7 +306,8 @@ namespace nuc_ros2
 		
 		std::vector<int> facet_vertices;
 		std::vector<double> vertex_positions;
-		convertMeshToVector(request->mesh, facet_vertices, vertex_positions);
+		unsigned int mesh_coord_dim = 3;
+		convertMeshToVector(request->mesh, facet_vertices, vertex_positions, mesh_coord_dim);
 
 		result = nuc(facet_vertices, vertex_positions);
 
@@ -295,12 +316,8 @@ namespace nuc_ros2
 		unsigned int num_waypoint = result.first.size();
 		response->coverage.poses.resize(num_waypoint);
 
-		// determine coordinate dimension from mesh vertices (compat: request->mesh has 3D vertices)
-		unsigned int coord_dim = 3;
-		if(request->mesh.vertices.size() > 0)
-		{
-			coord_dim = (vertex_positions.size() / request->mesh.vertices.size());
-		}
+		// coordinate dimension is provided by convertMeshToVector
+		unsigned int coord_dim = mesh_coord_dim;
 
 		for(size_t i = 0; i < num_waypoint; ++i)
 		{
@@ -325,15 +342,14 @@ namespace nuc_ros2
 		
 	std::vector<int> facet_vertices;
 	std::vector<double> vertex_positions;
-	convertMeshToVector(request->mesh, facet_vertices, vertex_positions);
+	unsigned int mesh_coord_dim = 3;
+	convertMeshToVector(request->mesh, facet_vertices, vertex_positions, mesh_coord_dim);
 		
 		// We find the facet whose center is the closest to the start point
 		double min_dist = 1000000;
 		int min_facet = -1;
 		unsigned int facet_num = facet_vertices.size()/3;
-		unsigned int coord_dim = 3;
-		if(request->mesh.vertices.size() > 0)
-			coord_dim = vertex_positions.size() / request->mesh.vertices.size();
+		unsigned int coord_dim = mesh_coord_dim;
 
 		for(size_t i = 0; i < facet_num; ++i)
 		{

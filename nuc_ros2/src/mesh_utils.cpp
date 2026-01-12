@@ -5,12 +5,15 @@ namespace nuc_ros2
 {
 
 void convertMeshToVector(const shape_msgs::msg::Mesh& the_mesh, 
-    std::vector<int>& facet_vertices, std::vector<double>& vertex_positions)
+    std::vector<int>& facet_vertices, std::vector<double>& vertex_positions,
+    unsigned int& coord_dim)
 {
     unsigned int facet_num = the_mesh.triangles.size();
     unsigned int ver_num = the_mesh.vertices.size();
-    facet_vertices.resize(facet_num*3);
-    vertex_positions.resize(ver_num*3);
+    // ROS Mesh vertices are 3D; we expose coord_dim so callers can support higher dimensions when available
+    coord_dim = 3u;
+    facet_vertices.resize(facet_num * 3);
+    vertex_positions.resize(ver_num * coord_dim);
 
     #pragma omp parallel for
     for(size_t i = 0; i < facet_num; ++i)
@@ -23,9 +26,9 @@ void convertMeshToVector(const shape_msgs::msg::Mesh& the_mesh,
     #pragma omp parallel for
     for(size_t i = 0; i < ver_num; ++i)
     {
-        vertex_positions[i*3] = the_mesh.vertices[i].x;
-        vertex_positions[i*3+1] = the_mesh.vertices[i].y;
-        vertex_positions[i*3+2] = the_mesh.vertices[i].z;
+        vertex_positions[i*coord_dim + 0] = the_mesh.vertices[i].x;
+        vertex_positions[i*coord_dim + 1] = the_mesh.vertices[i].y;
+        vertex_positions[i*coord_dim + 2] = the_mesh.vertices[i].z;
     }
 }
 

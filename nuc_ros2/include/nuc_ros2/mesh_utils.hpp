@@ -20,7 +20,8 @@ namespace nuc_ros2
  *                         The format is [x, y, z, x, y, z, ...] for each vertex.
  */
 void convertMeshToVector(const shape_msgs::msg::Mesh& the_mesh, 
-    std::vector<int>& facet_vertices, std::vector<double>& vertex_positions);
+    std::vector<int>& facet_vertices, std::vector<double>& vertex_positions,
+    unsigned int& coord_dim);
 
 /**
  * @brief Computes a directed adjacency matrix for a polygonal mesh.
